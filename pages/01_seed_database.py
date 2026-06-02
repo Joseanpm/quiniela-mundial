@@ -25,7 +25,8 @@ if 'authenticated' not in st.session_state:
 
 if not st.session_state.authenticated:
     with st.expander("🔐 Acceso Administrador", expanded=True):
-        password = st.input_text("Contraseña de administrador:", type="password")
+        # ✅ CORREGIDO: st.text_input en lugar de st.input_text
+        password = st.text_input("Contraseña de administrador:", type="password")
         if st.button("Verificar"):
             if password == "admin2026":
                 st.session_state.authenticated = True
@@ -35,7 +36,7 @@ if not st.session_state.authenticated:
                 st.error("❌ Contraseña incorrecta")
     st.stop()
 
-# Los PARTIDOS completos
+# Los PARTIDOS completos (usando los mismos de antes)
 PARTIDOS = [
     ("Grupo A", "México", "Sudáfrica", "2026-06-11", "13:00", "Azteca, CDMX"),
     ("Grupo A", "Corea del Sur", "Chequia", "2026-06-11", "20:00", "Akron, Zapopan"),
@@ -112,16 +113,29 @@ PARTIDOS = [
 ]
 
 # Botón para cargar partidos
-if st.button("🚀 Cargar todos los partidos", type="primary"):
+st.subheader("🚀 Cargar/Actualizar Partidos")
+
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.warning("⚠️ Esto eliminará los pronósticos de partidos sin resultado")
+with col2:
+    ejecutar = st.button("🌱 Cargar Partidos", type="primary", use_container_width=True)
+
+if ejecutar:
     try:
         supabase = init_supabase()
         
+        with st.spinner("Verificando conexión..."):
+            # Probar conexión
+            test = supabase.table('partidos').select('count', count='exact').limit(1).execute()
+            st.info("✅ Conexión a Supabase establecida")
+        
         with st.spinner("Eliminando partidos anteriores sin resultados..."):
-            # Eliminar partidos sin resultados
+            # Eliminar partidos sin resultados (cerrado = 0)
             response = supabase.table('partidos').delete().eq('cerrado', 0).execute()
             st.info(f"🗑 Partidos eliminados: {len(response.data) if response.data else 0}")
         
-        # Insertar partidos en batches
+        # Insertar partidos
         progress_bar = st.progress(0)
         status_text = st.empty()
         
@@ -142,12 +156,12 @@ if st.button("🚀 Cargar todos los partidos", type="primary"):
                     'sede': sede,
                     'cerrado': 0
                 }
-                supabase.table('partidos').insert(data).execute()
+                result = supabase.table('partidos').insert(data).execute()
                 insertados += 1
             except Exception as e:
                 errores += 1
                 if errores <= 5:
-                    st.warning(f"Error con {local} vs {visita}: {e}")
+                    st.warning(f"Error con {local} vs {visita}: {str(e)[:100]}")
             
             progress_bar.progress((i + 1) / len(PARTIDOS))
         
@@ -155,13 +169,24 @@ if st.button("🚀 Cargar todos los partidos", type="primary"):
         
         st.success(f"✅ {insertados} partidos insertados correctamente")
         if errores:
-            st.warning(f"⚠️ {errores} errores")
+            st.warning(f"⚠️ {errores} errores (posibles duplicados)")
+        
+        # Mostrar resumen por grupo
+        st.subheader("📊 Resumen por grupo")
+        grupos = {}
+        for fase, _, _, _, _, _ in PARTIDOS:
+            grupos[fase] = grupos.get(fase, 0) + 1
+        
+        cols = st.columns(4)
+        for i, (grupo, count) in enumerate(sorted(grupos.items())):
+            cols[i % 4].metric(grupo, count)
         
         st.balloons()
+        st.success("🎉 ¡Todos los partidos han sido cargados exitosamente!")
         
     except Exception as e:
-        st.error(f"❌ Error general: {e}")
-        st.info("Verifica que las credenciales de Supabase estén correctas en Secrets")
+        st.error(f"❌ Error general: {str(e)}")
+        st.info("💡 Verifica que las credenciales SUPABASE_URL y SUPABASE_KEY estén correctas en Secrets")
 
 st.markdown("---")
 st.info("💡 Usando API REST de Supabase (puerto 443)")
