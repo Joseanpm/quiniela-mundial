@@ -1,6 +1,7 @@
+# pages/01_seed_database.py
 import streamlit as st
-import psycopg2
-from datetime import datetime
+from supabase import create_client, Client
+import time
 
 st.set_page_config(
     page_title="Cargar Partidos",
@@ -8,18 +9,24 @@ st.set_page_config(
     layout="centered"
 )
 
-st.title("🌱 Cargar Partidos a la Base de Datos")
+st.title("🌱 Cargar Partidos a Supabase")
 st.markdown("---")
 
-# Verificar credenciales de admin (opcional por ahora)
+# Inicializar conexión a Supabase
+@st.cache_resource
+def init_supabase():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+# Verificar autenticación
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     with st.expander("🔐 Acceso Administrador", expanded=True):
-        password = st.text_input("Contraseña de administrador:", type="password")
+        password = st.input_text("Contraseña de administrador:", type="password")
         if st.button("Verificar"):
-            # Contraseña simple por ahora - puedes cambiarla después
             if password == "admin2026":
                 st.session_state.authenticated = True
                 st.success("✅ Acceso concedido")
@@ -28,9 +35,8 @@ if not st.session_state.authenticated:
                 st.error("❌ Contraseña incorrecta")
     st.stop()
 
-# Los PARTIDOS completos (usando los que ya tienes en seed_partidos_v4.py)
+# Los PARTIDOS completos
 PARTIDOS = [
-    # JORNADA 1
     ("Grupo A", "México", "Sudáfrica", "2026-06-11", "13:00", "Azteca, CDMX"),
     ("Grupo A", "Corea del Sur", "Chequia", "2026-06-11", "20:00", "Akron, Zapopan"),
     ("Grupo B", "Canadá", "Bosnia-Herzegovina", "2026-06-12", "13:00", "Toronto"),
@@ -55,7 +61,6 @@ PARTIDOS = [
     ("Grupo L", "Inglaterra", "Croacia", "2026-06-17", "14:00", "Dallas"),
     ("Grupo L", "Ghana", "Panamá", "2026-06-17", "17:00", "Toronto"),
     ("Grupo K", "Uzbekistán", "Colombia", "2026-06-17", "19:00", "Azteca, CDMX"),
-    # JORNADA 2
     ("Grupo A", "Chequia", "Sudáfrica", "2026-06-18", "10:00", "Atlanta"),
     ("Grupo B", "Suiza", "Bosnia-Herzegovina", "2026-06-18", "13:00", "Los Ángeles"),
     ("Grupo B", "Canadá", "Qatar", "2026-06-18", "16:00", "Vancouver"),
@@ -80,7 +85,6 @@ PARTIDOS = [
     ("Grupo L", "Inglaterra", "Ghana", "2026-06-23", "14:00", "Boston"),
     ("Grupo L", "Panamá", "Croacia", "2026-06-23", "17:00", "Toronto"),
     ("Grupo K", "Colombia", "Congo DR", "2026-06-23", "19:00", "Akron, Zapopan"),
-    # JORNADA 3
     ("Grupo B", "Suiza", "Canadá", "2026-06-24", "13:00", "Vancouver"),
     ("Grupo B", "Bosnia-Herzegovina", "Qatar", "2026-06-24", "13:00", "Seattle"),
     ("Grupo C", "Brasil", "Escocia", "2026-06-24", "16:00", "Miami"),
@@ -107,114 +111,57 @@ PARTIDOS = [
     ("Grupo J", "Jordania", "Argentina", "2026-06-27", "20:00", "Dallas"),
 ]
 
-def conectar_bd():
-    """Conectar a Supabase"""
-    try:
-        conn = psycopg2.connect(st.secrets["DATABASE_URL"])
-        return conn
-    except Exception as e:
-        st.error(f"Error de conexión: {e}")
-        return None
-
-# Mostrar estado actual
-st.subheader("📊 Estado Actual")
-
-try:
-    conn = conectar_bd()
-    if conn:
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM partidos")
-        total_partidos = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM partidos WHERE goles_local IS NULL")
-        partidos_pendientes = cur.fetchone()[0]
-        
-        col1, col2 = st.columns(2)
-        col1.metric("Total Partidos", total_partidos)
-        col2.metric("Partidos Pendientes", partidos_pendientes)
-        
-        cur.close()
-        conn.close()
-except Exception as e:
-    st.warning(f"No se pudo conectar: {e}")
-
-st.markdown("---")
-
 # Botón para cargar partidos
-st.subheader("🚀 Cargar/Actualizar Partidos")
-
-col1, col2 = st.columns([3, 1])
-with col1:
-    st.warning("⚠️ Esto eliminará los pronósticos de partidos sin resultado y recargará todos los partidos")
-with col2:
-    ejecutar = st.button("🌱 Cargar Partidos", type="primary", use_container_width=True)
-
-if ejecutar:
-    with st.spinner("Cargando partidos a Supabase..."):
-        try:
-            conn = conectar_bd()
-            if conn:
-                cur = conn.cursor()
-                
-                # Paso 1: Eliminar pronósticos de partidos sin resultado
-                cur.execute("""
-                    DELETE FROM pronosticos 
-                    WHERE partido_id IN (
-                        SELECT id FROM partidos WHERE goles_local IS NULL
-                    )
-                """)
-                st.info(f"🗑 Pronósticos eliminados: {cur.rowcount}")
-                
-                # Paso 2: Eliminar partidos sin resultado
-                cur.execute("DELETE FROM partidos WHERE goles_local IS NULL")
-                st.info(f"🗑 Partidos eliminados: {cur.rowcount}")
-                
-                # Paso 3: Insertar nuevos partidos
-                insertados = 0
-                errores = 0
-                
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                for i, (fase, local, visita, fecha, hora, sede) in enumerate(PARTIDOS):
-                    status_text.text(f"Insertando: {local} vs {visita}")
-                    try:
-                        cur.execute("""
-                            INSERT INTO partidos (fase, equipo_local, equipo_visita, fecha, hora_inicio, sede, cerrado)
-                            VALUES (%s, %s, %s, %s, %s, %s, 0)
-                        """, (fase, local, visita, fecha, hora, sede))
-                        insertados += 1
-                    except Exception as e:
-                        errores += 1
-                        if errores <= 5:  # Mostrar solo primeros 5 errores
-                            st.warning(f"Error con {local} vs {visita}: {e}")
-                    
-                    progress_bar.progress((i + 1) / len(PARTIDOS))
-                
-                conn.commit()
-                status_text.empty()
-                
-                st.success(f"✅ {insertados} partidos insertados correctamente")
-                if errores:
-                    st.warning(f"⚠️ {errores} errores (posiblemente partidos duplicados)")
-                
-                # Mostrar resumen por grupo
-                st.subheader("📊 Partidos por Grupo")
-                grupos = {}
-                for fase, _, _, _, _, _ in PARTIDOS:
-                    grupos[fase] = grupos.get(fase, 0) + 1
-                
-                cols = st.columns(4)
-                for i, (grupo, count) in enumerate(sorted(grupos.items())):
-                    cols[i % 4].metric(grupo, count)
-                
-                cur.close()
-                conn.close()
-                
-                st.balloons()
-                st.success("🎉 ¡Todos los partidos han sido cargados exitosamente!")
-                
-        except Exception as e:
-            st.error(f"❌ Error general: {e}")
+if st.button("🚀 Cargar todos los partidos", type="primary"):
+    try:
+        supabase = init_supabase()
+        
+        with st.spinner("Eliminando partidos anteriores sin resultados..."):
+            # Eliminar partidos sin resultados
+            response = supabase.table('partidos').delete().eq('cerrado', 0).execute()
+            st.info(f"🗑 Partidos eliminados: {len(response.data) if response.data else 0}")
+        
+        # Insertar partidos en batches
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        insertados = 0
+        errores = 0
+        
+        for i, partido in enumerate(PARTIDOS):
+            fase, local, visita, fecha, hora, sede = partido
+            status_text.text(f"Insertando: {local} vs {visita}")
+            
+            try:
+                data = {
+                    'fase': fase,
+                    'equipo_local': local,
+                    'equipo_visita': visita,
+                    'fecha': fecha,
+                    'hora_inicio': hora,
+                    'sede': sede,
+                    'cerrado': 0
+                }
+                supabase.table('partidos').insert(data).execute()
+                insertados += 1
+            except Exception as e:
+                errores += 1
+                if errores <= 5:
+                    st.warning(f"Error con {local} vs {visita}: {e}")
+            
+            progress_bar.progress((i + 1) / len(PARTIDOS))
+        
+        status_text.empty()
+        
+        st.success(f"✅ {insertados} partidos insertados correctamente")
+        if errores:
+            st.warning(f"⚠️ {errores} errores")
+        
+        st.balloons()
+        
+    except Exception as e:
+        st.error(f"❌ Error general: {e}")
+        st.info("Verifica que las credenciales de Supabase estén correctas en Secrets")
 
 st.markdown("---")
-st.info("💡 **Nota:** Esta acción solo inserta partidos nuevos. Los resultados ya cargados no se modifican.")
+st.info("💡 Usando API REST de Supabase (puerto 443)")
