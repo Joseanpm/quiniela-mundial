@@ -24,27 +24,54 @@ BANDERAS = {
 def bandera(pais):
     return BANDERAS.get(pais, "🏳️")
 
-def grupo_tiene_proximos(partidos_fase):
-    """True si el grupo tiene al menos un partido no bloqueado."""
-    return any(not partido_bloqueado(p) and not p["cerrado"] for p in partidos_fase)
+def get_fase_mas_proxima(por_fase):
+    """Retorna el nombre de la fase con el partido próximo más cercano en fecha/hora."""
+    from datetime import datetime
+    import pytz
+    merida = pytz.timezone("America/Merida")
+    ahora  = datetime.now(merida)
+    mejor_fase = None
+    mejor_dt   = None
+    for fase, partidos in por_fase.items():
+        for p in partidos:
+            if p["cerrado"] or not p.get("hora_inicio") or not p.get("fecha"):
+                continue
+            try:
+                dt = merida.localize(datetime.strptime(
+                    f"{p['fecha']} {p['hora_inicio']}", "%Y-%m-%d %H:%M"
+                ))
+                if dt >= ahora:
+                    if mejor_dt is None or dt < mejor_dt:
+                        mejor_dt   = dt
+                        mejor_fase = fase
+            except Exception:
+                continue
+    return mejor_fase
 
-def grupo_resumen(partidos_fase, user_id):
+def get_pronosticos_usuario(user_id):
+    """Trae TODOS los pronósticos del usuario de un jalón."""
+    from utils.db import get_supabase
+    sb = get_supabase()
+    res = sb.table("pronosticos").select("*").eq("colaborador_id", user_id).execute()
+    return {p["partido_id"]: p for p in (res.data or [])}
+
+def grupo_resumen(partidos_fase, user_id, prons_cache=None):
     """Retorna (pronosticados, total, puntos) del grupo para el usuario."""
     total = len(partidos_fase)
     pronosticados = 0
     puntos = 0
     for p in partidos_fase:
-        pron = get_pronostico(user_id, p["id"])
+        pron = prons_cache.get(p["id"]) if prons_cache else get_pronostico(user_id, p["id"])
         if pron:
             pronosticados += 1
             puntos += pron["puntos"] or 0
     return pronosticados, total, puntos
 
-def render_partido(partido, user):
+def render_partido(partido, user, prons_cache=None):
     pid      = partido["id"]
     cerrado  = partido["cerrado"]
     bloqueado = partido_bloqueado(partido)
-    pron     = get_pronostico(user["id"], pid)
+    pron     = prons_cache.get(pid) if prons_cache else get_pronostico(user["id"], pid)
 
     prev_local  = pron["goles_local"]  if pron else 0
     prev_visita = pron["goles_visita"] if pron else 0
@@ -159,6 +186,12 @@ def render(user):
     elim_presentes   = [f for f in ORDEN_ELIM   if f in por_fase]
     otras_fases      = [f for f in por_fase if f not in ORDEN_GRUPOS and f not in ORDEN_ELIM]
 
+    # Solo abre la fase con el partido más próximo
+    fase_abierta = get_fase_mas_proxima(por_fase)
+
+    # Cargar TODOS los pronósticos del usuario de un jalón (más rápido con Supabase)
+    prons_cache = get_pronosticos_usuario(user["id"])
+
     # Info de puntos
     st.html("""
     <div style="background:#EBF8FF;border-radius:10px;padding:12px 18px;
@@ -175,29 +208,27 @@ def render(user):
         st.markdown("## ⚽ Fase de Grupos")
         for fase in grupos_presentes:
             partidos_fase = por_fase[fase]
-            pronosticados, total, puntos = grupo_resumen(partidos_fase, user["id"])
-            tiene_proximos = grupo_tiene_proximos(partidos_fase)
+            pronosticados, total, puntos = grupo_resumen(partidos_fase, user["id"], prons_cache)
 
             # Label con progreso
             todos_cerrados = all(p["cerrado"] for p in partidos_fase)
             icono = "✅" if todos_cerrados else ("🟡" if pronosticados > 0 else "⬜")
             label = f"{icono} {fase}  —  {pronosticados}/{total} pronósticos · {puntos} pts"
 
-            with st.expander(label, expanded=tiene_proximos):
+            with st.expander(label, expanded=(fase == fase_abierta)):
                 for partido in partidos_fase:
-                    render_partido(partido, user)
+                    render_partido(partido, user, prons_cache)
 
     # ── ELIMINATORIAS ─────────────────────────────────────────────
     if elim_presentes or otras_fases:
         st.markdown("## 🔥 Eliminatorias")
         for fase in (elim_presentes + otras_fases):
             partidos_fase = por_fase[fase]
-            pronosticados, total, puntos = grupo_resumen(partidos_fase, user["id"])
-            tiene_proximos = grupo_tiene_proximos(partidos_fase)
+            pronosticados, total, puntos = grupo_resumen(partidos_fase, user["id"], prons_cache)
             todos_cerrados = all(p["cerrado"] for p in partidos_fase)
             icono = "✅" if todos_cerrados else ("🟡" if pronosticados > 0 else "⬜")
             label = f"{icono} {fase}  —  {pronosticados}/{total} pronósticos · {puntos} pts"
 
-            with st.expander(label, expanded=tiene_proximos):
+            with st.expander(label, expanded=(fase == fase_abierta)):
                 for partido in partidos_fase:
-                    render_partido(partido, user)
+                    render_partido(partido, user, prons_cache)
