@@ -68,13 +68,16 @@ def get_partido(partido_id: int):
     res = sb.table("partidos").select("*").eq("id", partido_id).execute()
     return res.data[0] if res.data else None
 
-def upsert_partido(partido_id, goles_local, goles_visita, cerrado=1):
+def upsert_partido(partido_id, goles_local, goles_visita, cerrado=1, equipo_pasa=None):
     sb = get_supabase()
-    sb.table("partidos").update({
+    data = {
         "goles_local": goles_local,
         "goles_visita": goles_visita,
         "cerrado": cerrado
-    }).eq("id", partido_id).execute()
+    }
+    if equipo_pasa:
+        data["equipo_pasa"] = equipo_pasa
+    sb.table("partidos").update(data).eq("id", partido_id).execute()
     _recalcular_puntos(partido_id)
 
 def agregar_partido(fase, local, visita, fecha, hora=None, sede=None):
@@ -127,10 +130,16 @@ FASES_ELIMINATORIAS = {
 def es_eliminatoria(fase: str) -> bool:
     return fase in FASES_ELIMINATORIAS
 
-def _calcular_puntos(pron_local, pron_visita, real_local, real_visita, fase=""):
+def _calcular_puntos(pron_local, pron_visita, real_local, real_visita,
+                     fase="", equipo_local="", equipo_pasa=None):
     if es_eliminatoria(fase):
+        # El pronóstico: 1-0 = local pasa, 0-1 = visita pasa
         pron_pasa = "local" if pron_local > pron_visita else "visita"
-        real_pasa = "local" if real_local > real_visita else "visita"
+        # El resultado real: si hay equipo_pasa explícito úsalo, sino infiere del marcador
+        if equipo_pasa:
+            real_pasa = "local" if equipo_pasa == equipo_local else "visita"
+        else:
+            real_pasa = "local" if real_local > real_visita else "visita"
         return 2 if pron_pasa == real_pasa else 0
     if pron_local == real_local and pron_visita == real_visita:
         return 3
@@ -148,7 +157,9 @@ def _recalcular_puntos(partido_id):
         pts = _calcular_puntos(
             p["goles_local"], p["goles_visita"],
             partido["goles_local"], partido["goles_visita"],
-            partido.get("fase", "")
+            partido.get("fase", ""),
+            equipo_local=partido.get("equipo_local", ""),
+            equipo_pasa=partido.get("equipo_pasa")
         )
         sb.table("pronosticos").update({"puntos": pts}).eq("id", p["id"]).execute()
 

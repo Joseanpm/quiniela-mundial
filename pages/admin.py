@@ -2,7 +2,8 @@ import streamlit as st
 from utils.db import (get_partidos, upsert_partido, agregar_partido,
                       get_all_colaboradores, get_pronosticos_partido,
                       cargar_lista_blanca, get_lista_blanca, eliminar_de_lista_blanca,
-                      lista_blanca_activa, agregar_a_lista_blanca, eliminar_colaborador)
+                      lista_blanca_activa, agregar_a_lista_blanca, eliminar_colaborador,
+                      es_eliminatoria)
 
 def _hora_valida(hora: str) -> bool:
     """Valida formato HH:MM"""
@@ -31,6 +32,7 @@ def render():
             }
             sel = st.selectbox("Partido a cerrar", list(opciones.keys()))
             partido = opciones[sel]
+            es_elim = es_eliminatoria(partido["fase"])
 
             c1, c2 = st.columns(2)
             with c1:
@@ -38,9 +40,25 @@ def render():
             with c2:
                 gv = st.number_input(f"Goles {partido['equipo_visita']}", min_value=0, max_value=20, key="admin_gv")
 
+            # Eliminatorias: quién pasa explícitamente
+            equipo_pasa = None
+            if es_elim:
+                st.markdown("---")
+                st.markdown("##### 🏆 ¿Quién avanza? *(obligatorio en eliminatorias)*")
+                st.caption("Indica el ganador aunque haya habido prórroga o penales.")
+                equipo_pasa = st.radio(
+                    "Equipo que pasa:",
+                    [partido["equipo_local"], partido["equipo_visita"]],
+                    horizontal=True,
+                    key="admin_pasa"
+                )
+                if gl == gv:
+                    st.info(f"⏱ Empate {gl}-{gv} al 90 min → pasó **{equipo_pasa}** por prórroga/penales")
+
             if st.button("Registrar resultado y calcular puntos", type="primary"):
-                upsert_partido(partido["id"], gl, gv)
-                st.success(f"Resultado registrado: {gl} — {gv}. Puntos actualizados ✅")
+                upsert_partido(partido["id"], gl, gv, equipo_pasa=equipo_pasa)
+                extra = f" → pasa {equipo_pasa}" if equipo_pasa else ""
+                st.success(f"Resultado: {gl} — {gv}{extra}. Puntos actualizados ✅")
                 st.rerun()
 
         if terminados:
@@ -49,9 +67,11 @@ def render():
                 prons = get_pronosticos_partido(p["id"])
                 exactos   = sum(1 for x in prons if x["puntos"] == 3)
                 parciales = sum(1 for x in prons if x["puntos"] == 1)
+                pasa_txt  = f" → pasa {p.get('equipo_pasa','')}" if p.get("equipo_pasa") else ""
                 st.markdown(f"""
                 <div class="card" style="padding:12px 18px;">
                     <b>{p['equipo_local']} {p['goles_local']} — {p['goles_visita']} {p['equipo_visita']}</b>
+                    {pasa_txt}
                     &nbsp;·&nbsp; {p['fecha']}
                     &nbsp;·&nbsp; <span style="color:#00B37D">✔ {exactos} exactos</span>
                     &nbsp; <span style="color:#D69E2E">≈ {parciales} parciales</span>
