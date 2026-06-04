@@ -3,7 +3,7 @@ from utils.db import (get_partidos, upsert_partido, agregar_partido,
                       get_all_colaboradores, get_pronosticos_partido,
                       cargar_lista_blanca, get_lista_blanca, eliminar_de_lista_blanca,
                       lista_blanca_activa, agregar_a_lista_blanca, eliminar_colaborador,
-                      es_eliminatoria)
+                      es_eliminatoria, eliminar_partido)
 
 def _hora_valida(hora: str) -> bool:
     """Valida formato HH:MM"""
@@ -107,6 +107,25 @@ def render():
                 agregar_partido(fase.strip(), local.strip(), visita.strip(),
                                 str(fecha), hora_final)
                 st.success(f"✅ {local} vs {visita} agregado — {fecha} {hora_final or 'sin hora'}")
+                st.rerun()
+
+        st.markdown("---")
+        st.markdown("##### 🗑 Eliminar partido")
+        st.caption("Solo puedes eliminar partidos sin resultado registrado.")
+        todos = get_partidos()
+        eliminables = [p for p in todos if not p["cerrado"] and p["goles_local"] is None]
+        if not eliminables:
+            st.info("No hay partidos eliminables (todos tienen resultado o están cerrados).")
+        else:
+            opciones_del = {
+                f"{p['fase']} — {p['equipo_local']} vs {p['equipo_visita']} ({p['fecha']})": p
+                for p in eliminables
+            }
+            sel_del = st.selectbox("Selecciona partido a eliminar", list(opciones_del.keys()), key="sel_del")
+            partido_del = opciones_del[sel_del]
+            if st.button("🗑 Eliminar partido", type="secondary"):
+                eliminar_partido(partido_del["id"])
+                st.success(f"✅ Partido eliminado correctamente.")
                 st.rerun()
 
     # ── Tab 3: Colaboradores ──────────────────────────────────────────────────
