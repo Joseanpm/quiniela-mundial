@@ -205,3 +205,20 @@ def lista_blanca_activa() -> bool:
     sb = get_supabase()
     res = sb.table("lista_blanca").select("id").neq("numero_emp", "0000").execute()
     return len(res.data) > 0
+
+def agregar_a_lista_blanca(numero_emp: str, nombre_ref: str = "") -> bool:
+    """Agrega un empleado individual a la lista blanca. Retorna False si ya existe."""
+    sb = get_supabase()
+    res = sb.table("lista_blanca").select("id").eq("numero_emp", numero_emp).execute()
+    if res.data:
+        return False
+    sb.table("lista_blanca").insert({
+        "numero_emp": numero_emp, "nombre_ref": nombre_ref
+    }).execute()
+    return True
+
+def eliminar_colaborador(colaborador_id: int):
+    """Elimina un colaborador y todos sus pronósticos."""
+    sb = get_supabase()
+    sb.table("pronosticos").delete().eq("colaborador_id", colaborador_id).execute()
+    sb.table("colaboradores").delete().eq("id", colaborador_id).execute()
