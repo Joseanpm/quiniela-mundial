@@ -233,3 +233,9 @@ def eliminar_colaborador(colaborador_id: int):
     sb = get_supabase()
     sb.table("pronosticos").delete().eq("colaborador_id", colaborador_id).execute()
     sb.table("colaboradores").delete().eq("id", colaborador_id).execute()
+    
+def eliminar_partido(partido_id: int):
+    """Elimina un partido sin resultado y sus pronósticos."""
+    sb = get_supabase()
+    sb.table("pronosticos").delete().eq("partido_id", partido_id).execute()
+    sb.table("partidos").delete().eq("id", partido_id).execute()
