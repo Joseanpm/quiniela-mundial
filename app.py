@@ -6,6 +6,7 @@ import pages.quiniela as quiniela
 import pages.tabla as tabla
 import pages.admin as admin
 import pages.reglas as reglas
+import pages.resultados as resultados
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -137,7 +138,7 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
-    tabs_list = ["🗓 Mis Pronósticos", "🏆 Tabla General", "📋 Reglas y Premios"]
+    tabs_list = ["🗓 Mis Pronósticos", "📊 Mis Resultados", "🏆 Tabla General", "📋 Reglas y Premios"]
     if user.get("es_admin"):
         tabs_list.append("⚙️ Admin")
 
@@ -146,11 +147,13 @@ else:
     with tabs[0]:
         quiniela.render(user)
     with tabs[1]:
-        tabla.render()
+        resultados.render(user)
     with tabs[2]:
+        tabla.render()
+    with tabs[3]:
         reglas.render()
-    if user.get("es_admin") and len(tabs) > 3:
-        with tabs[3]:
+    if user.get("es_admin") and len(tabs) > 4:
+        with tabs[4]:
             admin.render()
 
     # Logout

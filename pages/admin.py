@@ -14,7 +14,7 @@ def render():
     st.markdown("### ⚙️ Panel de Administración")
     st.caption("Solo visible para administradores.")
 
-    tab_res, tab_add, tab_col, tab_lb = st.tabs(["📝 Ingresar Resultados", "➕ Agregar Partido", "👥 Colaboradores", "🔐 Lista Blanca"])
+    tab_res, tab_add, tab_col, tab_lb, tab_det = st.tabs(["📝 Ingresar Resultados", "➕ Agregar Partido", "👥 Colaboradores", "🔐 Lista Blanca", "📊 Detalle Colaborador"])
 
     # ── Tab 1: Resultados ─────────────────────────────────────────────────────
     with tab_res:
@@ -146,6 +146,88 @@ def render():
                     eliminar_colaborador(c["id"])
                     st.success(f"Colaborador {c['nombre']} eliminado ✅")
                     st.rerun()
+
+    # ── Tab 5: Detalle Colaborador ───────────────────────────────────────────
+    with tab_det:
+        st.markdown("#### 📊 Detalle de pronósticos por colaborador")
+        colaboradores = get_all_colaboradores()
+        no_admin = [c for c in colaboradores if not c["es_admin"]]
+        if not no_admin:
+            st.info("No hay colaboradores registrados aún.")
+        else:
+            opciones = {f"{c['nombre']} (Emp. {c['numero_emp']})": c for c in no_admin}
+            sel = st.selectbox("Selecciona colaborador", list(opciones.keys()))
+            colab = opciones[sel]
+
+            partidos = get_partidos()
+            cerrados = [p for p in partidos if p["cerrado"] or p["goles_local"] is not None]
+
+            if not cerrados:
+                st.info("Aún no hay partidos con resultado.")
+            else:
+                # Métricas
+                total_pts = 0
+                exactos = parciales = fallidos = sin_pron = 0
+                for p in cerrados:
+                    prons = get_pronosticos_partido(p["id"])
+                    pron = next((x for x in prons if x["colaborador_id"] == colab["id"]), None)
+                    if pron:
+                        pts = pron.get("puntos") or 0
+                        total_pts += pts
+                        if pts == 3: exactos += 1
+                        elif pts == 1: parciales += 1
+                        else: fallidos += 1
+                    else:
+                        sin_pron += 1
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("🏆 Puntos", total_pts)
+                c2.metric("✅ Exactos", exactos)
+                c3.metric("🟡 Parciales", parciales)
+                c4.metric("⬜ Sin pronóstico", sin_pron)
+
+                st.markdown("---")
+
+                for p in cerrados:
+                    prons = get_pronosticos_partido(p["id"])
+                    pron  = next((x for x in prons if x["colaborador_id"] == colab["id"]), None)
+                    pts   = pron.get("puntos", 0) if pron else None
+
+                    if pts == 3:
+                        emoji, color = "✅", "#00B37D"
+                    elif pts == 1:
+                        emoji, color = "🟡", "#D69E2E"
+                    elif pts == 0 and pron:
+                        emoji, color = "❌", "#E03131"
+                    else:
+                        emoji, color = "⬜", "#A0AEC0"
+
+                    pron_txt = f"{pron['goles_local']}-{pron['goles_visita']}" if pron else "Sin pronóstico"
+                    real_txt = f"{p['goles_local']}-{p['goles_visita']}"
+                    pts_txt  = f"+{pts} pts" if pron and pts else ("0 pts" if pron else "—")
+
+                    st.markdown(f"""
+                    <div style="padding:10px 0; border-bottom:1px solid #EDF2F7;
+                                display:flex; align-items:center; gap:12px;">
+                        <span style="font-size:1.1rem;">{emoji}</span>
+                        <div style="flex:1;">
+                            <span style="font-size:13px; font-weight:600;">
+                                {p['equipo_local']} vs {p['equipo_visita']}
+                            </span>
+                            <span style="font-size:12px; color:#718096;"> · {p['fase']} · {p['fecha']}</span>
+                        </div>
+                        <div style="text-align:center; min-width:80px;">
+                            <div style="font-size:11px; color:#718096;">Pronóstico</div>
+                            <div style="font-weight:600;">{pron_txt}</div>
+                        </div>
+                        <div style="text-align:center; min-width:80px;">
+                            <div style="font-size:11px; color:#718096;">Real</div>
+                            <div style="font-weight:600;">{real_txt}</div>
+                        </div>
+                        <div style="text-align:right; min-width:60px;
+                                    font-weight:700; color:{color};">{pts_txt}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
     # ── Tab 4: Lista Blanca ───────────────────────────────────────────────────
     with tab_lb:
