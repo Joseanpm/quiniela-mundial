@@ -68,7 +68,7 @@ def render():
                 exactos   = sum(1 for x in prons if x["puntos"] == 3)
                 parciales = sum(1 for x in prons if x["puntos"] == 1)
                 pasa_txt  = f" → pasa {p.get('equipo_pasa','')}" if p.get("equipo_pasa") else ""
-                st.markdown(f"""
+                st.html(f"""
                 <div class="card" style="padding:12px 18px;">
                     <b>{p['equipo_local']} {p['goles_local']} — {p['goles_visita']} {p['equipo_visita']}</b>
                     {pasa_txt}
@@ -77,7 +77,7 @@ def render():
                     &nbsp; <span style="color:#D69E2E">≈ {parciales} parciales</span>
                     &nbsp; <span style="color:#718096">{len(prons)} pronósticos</span>
                 </div>
-                """, unsafe_allow_html=True)
+                """)
 
     # ── Tab 2: Agregar partido ────────────────────────────────────────────────
     with tab_add:
