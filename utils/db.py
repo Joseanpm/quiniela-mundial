@@ -113,11 +113,17 @@ def upsert_pronostico(colaborador_id, partido_id, goles_local, goles_visita):
  
 def get_pronosticos_partido(partido_id):
     sb = get_supabase()
-    res = sb.table("pronosticos").select("*, colaboradores(nombre)")\
+    res = sb.table("pronosticos").select("*")\
         .eq("partido_id", partido_id).execute()
     rows = []
     for r in (res.data or []):
-        r["nombre"] = r.get("colaboradores", {}).get("nombre", "") if isinstance(r.get("colaboradores"), dict) else ""
+        # Buscar nombre del colaborador por separado
+        try:
+            col = sb.table("colaboradores").select("nombre")\
+                .eq("id", r["colaborador_id"]).execute()
+            r["nombre"] = col.data[0]["nombre"] if col.data else ""
+        except Exception:
+            r["nombre"] = ""
         rows.append(r)
     return rows
  
@@ -233,7 +239,7 @@ def eliminar_colaborador(colaborador_id: int):
     sb = get_supabase()
     sb.table("pronosticos").delete().eq("colaborador_id", colaborador_id).execute()
     sb.table("colaboradores").delete().eq("id", colaborador_id).execute()
-    
+
 def eliminar_partido(partido_id: int):
     """Elimina un partido sin resultado y sus pronósticos."""
     sb = get_supabase()
